@@ -1,0 +1,5 @@
+{
+  "name": "WhatsApp Gemini Agent",
+  "description": "A dashboard for managing WhatsApp conversations with integrated Gemini AI responses.",
+  "requestFramePermissions": []
+}
