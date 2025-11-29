@@ -55,16 +55,18 @@ const App = () => {
     phoneNumberId: '',
     businessAccountId: '',
     apiToken: '',
-    webhookUrl: 'https://xibado1.app.n8n.cloud/webhook-test/WP-AGI',
-    n8nWebhookUrl: 'https://xibado1.app.n8n.cloud/webhook-test/WP-AGI',
-    verifyToken: 'your_verify_token_123'
+    webhookUrl: '', // Default to empty
+    n8nWebhookUrl: '', // Default to empty
+    verifyToken: 'your_verify_token_123',
+    backendApiUrl: '', // New: Initialize empty
   });
   const [configSaved, setConfigSaved] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
     whatsapp: false,
     webhook: false,
-    n8n: false
+    n8n: false,
+    backendApi: false, // New: Initialize false
   });
   const [hasGeminiKey, setHasGeminiKey] = useState(false);
   const [isWhatsAppConnected, setIsWhatsAppConnected] = useState(false); // New state for WhatsApp connection status
@@ -152,14 +154,13 @@ const App = () => {
       });
       setIsWhatsAppConnected(false); // Reset WhatsApp connection state
       setConfigSaved(false); // Reset config saved state too
-      setConnectionStatus({ whatsapp: false, webhook: false, n8n: false });
+      setConnectionStatus({ whatsapp: false, webhook: false, n8n: false, backendApi: false }); // Reset backendApi status
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
   // Effect for message simulation (dependent on isWhatsAppConnected)
   useEffect(() => {
-    // Replaced NodeJS.Timeout with number for browser environment compatibility
     let messageInterval: number | undefined;
     if (isAuthenticated && isWhatsAppConnected) {
       messageInterval = setInterval(simulateNewMessage, 15000); // Every 15 seconds
@@ -347,18 +348,20 @@ const App = () => {
     try {
       const response = await fetch(apiConfig.webhookUrl, {
         method: 'GET', // A simple GET usually suffices for reachability
+        mode: 'cors', // Ensure CORS mode for potential external endpoints
       });
 
       if (response.ok) {
         setConnectionStatus(prev => ({ ...prev, webhook: true }));
-        alert('✅ Webhook URL is reachable! Status: ' + response.status);
+        alert('✅ Webhook URL is reachable! Status: ' + response.status + '.\n\nNote: A successful reachability test does not guarantee correct webhook payload processing.');
       } else {
         setConnectionStatus(prev => ({ ...prev, webhook: false }));
-        alert('⚠️ Webhook URL returned an error. Status: ' + response.status + '. Please check the URL and your webhook endpoint logic.');
+        alert('⚠️ Webhook URL returned an error. Status: ' + response.status + '.\n\nPlease check the URL and your webhook endpoint logic. If this is a backend you control, ensure it returns a 2xx status for GET requests (for verification).');
       }
     } catch (error: any) {
+      console.error('Error testing Webhook URL:', error); // Log to console
       setConnectionStatus(prev => ({ ...prev, webhook: false }));
-      alert('❌ Could not reach webhook URL. Please verify the URL is correct and the server is running. Error: ' + error.message);
+      alert('❌ Could not reach Webhook URL. Error: ' + (error.message || 'Unknown network error') + '\n\nPlease check:\n• The URL is correct.\n• Your server is running and publicly accessible.\n• Cross-Origin Resource Sharing (CORS) headers are configured on your webhook endpoint to allow requests from this dashboard\'s domain.');
     }
   };
 
@@ -380,20 +383,55 @@ const App = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json', // Suggest JSON response
         },
-        body: JSON.stringify(testData)
+        body: JSON.stringify(testData),
+        mode: 'cors', // Ensure CORS mode
       });
 
       if (response.ok) {
         setConnectionStatus(prev => ({ ...prev, n8n: true }));
-        alert('✅ n8n Webhook is working! Check your n8n workflow for the test message. Status: ' + response.status);
+        alert('✅ n8n Webhook is working! Check your n8n workflow for the test message. Status: ' + response.status + '.\n\nNote: A successful test means the message was sent, verify within n8n that the workflow processed it as expected.');
       } else {
         setConnectionStatus(prev => ({ ...prev, n8n: false }));
-        alert('⚠️ n8n Webhook returned an error. Status: ' + response.status + '. Please check your n8n workflow.');
+        alert('⚠️ n8n Webhook returned an error. Status: ' + response.status + '. Please check your n8n workflow for errors or misconfigurations (e.g., incorrect HTTP method, authentication issues).');
       }
     } catch (error: any) {
+      console.error('Error testing n8n Webhook URL:', error); // Log to console
       setConnectionStatus(prev => ({ ...prev, n8n: false }));
-      alert('❌ Could not reach n8n webhook. Please verify the URL is correct and n8n is running. Error: ' + error.message);
+      alert('❌ Could not reach n8n webhook. Error: ' + (error.message || 'Unknown network error') + '\n\nPlease check:\n• The URL is correct.\n• Your n8n instance is running and the workflow is active.\n• Cross-Origin Resource Sharing (CORS) headers are configured on your n8n instance if it is running on a different domain.');
+    }
+  };
+
+  // Handle testing custom backend API URL
+  const handleTestBackendApi = async () => {
+    if (!apiConfig.backendApiUrl) {
+      alert('Please enter your Backend API URL first!');
+      return;
+    }
+    setConnectionStatus(prev => ({ ...prev, backendApi: false }));
+    try {
+      // Perform a simple GET request to a known health check endpoint on the backend
+      const healthCheckUrl = `${apiConfig.backendApiUrl.endsWith('/') ? apiConfig.backendApiUrl : apiConfig.backendApiUrl + '/'}health`;
+      const response = await fetch(healthCheckUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+        mode: 'cors', // Ensure CORS mode
+      });
+
+      if (response.ok) {
+        setConnectionStatus(prev => ({ ...prev, backendApi: true }));
+        alert('✅ Backend API URL is reachable! Status: ' + response.status + '.\n\nChecked ' + healthCheckUrl + '.');
+      } else {
+        setConnectionStatus(prev => ({ ...prev, backendApi: false }));
+        alert('⚠️ Backend API URL returned an error or health check failed. Status: ' + response.status + '.\n\nPlease ensure your backend is running, the URL is correct, and that a `/health` endpoint exists and returns a 2xx status. If the `/health` endpoint is different, adjust the test URL. Also check backend CORS configuration.');
+      }
+    } catch (error: any) {
+      console.error('Error testing Backend API URL:', error); // Log to console
+      setConnectionStatus(prev => ({ ...prev, backendApi: false }));
+      alert('❌ Could not reach Backend API URL. Error: ' + (error.message || 'Unknown network error') + '\n\nPlease check:\n• The URL is correct.\n• Your backend server is running and accessible from the internet.\n• Cross-Origin Resource Sharing (CORS) headers are configured on your backend to allow requests from this dashboard\'s domain.');
     }
   };
 
@@ -998,25 +1036,29 @@ const App = () => {
                     <label htmlFor="webhookUrl" className="block text-sm font-medium text-gray-700 mb-2">
                       Your Webhook URL (for receiving from WhatsApp)
                     </label>
-                    <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
+                    <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2 items-center">
                       <input
                         id="webhookUrl"
                         type="text"
                         placeholder="https://your-backend.com/webhook/whatsapp"
-                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 min-w-0"
                         value={apiConfig.webhookUrl}
                         onChange={(e) => setApiConfig({...apiConfig, webhookUrl: e.target.value})}
                       />
                       <button
                         onClick={handleTestWebhook}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center justify-center space-x-2 flex-shrink-0"
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center justify-center space-x-2 flex-shrink-0 min-h-[44px]"
                       >
                         <RefreshCw className="w-4 h-4" />
                         <span>Test</span>
                       </button>
+                      {apiConfig.webhookUrl && (
+                        <div className={`w-3 h-3 rounded-full flex-shrink-0 ${connectionStatus.webhook ? 'bg-green-500' : 'bg-red-500'}`}
+                             title={connectionStatus.webhook ? 'Webhook reachable' : 'Webhook not reachable'} />
+                      )}
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
-                      ⚡ This receives incoming WhatsApp messages (Meta will send messages to this URL)
+                      ⚡ This receives incoming WhatsApp messages (Meta will send messages to this URL). Button to test reachability.
                     </p>
                   </div>
 
@@ -1024,25 +1066,60 @@ const App = () => {
                     <label htmlFor="n8nWebhookUrl" className="block text-sm font-medium text-gray-700 mb-2">
                       n8n Webhook URL (for AI Agent responses)
                     </label>
-                    <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
+                    <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2 items-center">
                       <input
                         id="n8nWebhookUrl"
                         type="text"
                         placeholder="https://your-n8n.com/webhook/agent"
-                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 min-w-0"
                         value={apiConfig.n8nWebhookUrl}
                         onChange={(e) => setApiConfig({...apiConfig, n8nWebhookUrl: e.target.value})}
                       />
                       <button
                         onClick={handleTestN8nWebhook}
-                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition flex items-center justify-center space-x-2 flex-shrink-0"
+                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition flex items-center justify-center space-x-2 flex-shrink-0 min-h-[44px]"
                       >
                         <RefreshCw className="w-4 h-4" />
                         <span>Test</span>
                       </button>
+                      {apiConfig.n8nWebhookUrl && (
+                        <div className={`w-3 h-3 rounded-full flex-shrink-0 ${connectionStatus.n8n ? 'bg-green-500' : 'bg-red-500'}`}
+                             title={connectionStatus.n8n ? 'n8n webhook reachable' : 'n8n webhook not reachable'} />
+                      )}
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
-                      🤖 Messages are typically forwarded here for custom AI processing via n8n workflows.
+                      🤖 Messages are typically forwarded here for custom AI processing via n8n workflows. Button to send a test message.
+                    </p>
+                  </div>
+
+                  {/* New: Backend API URL Input */}
+                  <div className="mb-4">
+                    <label htmlFor="backendApiUrl" className="block text-sm font-medium text-gray-700 mb-2">
+                      Your Backend API URL (for this dashboard)
+                    </label>
+                    <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2 items-center">
+                      <input
+                        id="backendApiUrl"
+                        type="text"
+                        placeholder="https://your-backend-api.com/ (e.g., your Render URL)"
+                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 min-w-0"
+                        value={apiConfig.backendApiUrl}
+                        onChange={(e) => setApiConfig({...apiConfig, backendApiUrl: e.target.value})}
+                      />
+                      <button
+                        onClick={handleTestBackendApi}
+                        className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition flex items-center justify-center space-x-2 flex-shrink-0 min-h-[44px]"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                        <span>Test</span>
+                      </button>
+                      {apiConfig.backendApiUrl && (
+                        <div className={`w-3 h-3 rounded-full flex-shrink-0 ${connectionStatus.backendApi ? 'bg-green-500' : 'bg-red-500'}`}
+                             title={connectionStatus.backendApi ? 'Backend API reachable' : 'Backend API not reachable'} />
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      🔗 This URL will be used by <span className="font-semibold">this dashboard</span> to communicate with your custom backend for real-time chat data, sending messages, etc. Button to test reachability.
                     </p>
                   </div>
 
@@ -1080,7 +1157,7 @@ const App = () => {
                       📝 How to configure webhook in Meta Business Suite:
                     </p>
                     <ol className="text-xs text-blue-700 ml-4 list-decimal space-y-1">
-                      <li>Copy your webhook URL from above (<code>{apiConfig.webhookUrl}</code>)</li>
+                      <li>Copy your webhook URL from above (<code>{apiConfig.webhookUrl || 'N/A'}</code>)</li>
                       <li>Go to Meta Business Suite → WhatsApp → Configuration</li>
                       <li>Click "Edit" on webhook section</li>
                       <li>Paste webhook URL and your Verify Token (<code>{apiConfig.verifyToken}</code>)</li>
@@ -1112,14 +1189,15 @@ const App = () => {
                           phoneNumberId: '',
                           businessAccountId: '',
                           apiToken: '',
-                          webhookUrl: 'https://xibado1.app.n8n.cloud/webhook-test/WP-AGI',
-                          n8nWebhookUrl: 'https://xibado1.app.n8n.cloud/webhook-test/WP-AGI',
-                          verifyToken: 'your_verify_token_123'
+                          webhookUrl: '',
+                          n8nWebhookUrl: '',
+                          verifyToken: 'your_verify_token_123',
+                          backendApiUrl: '' // Reset backendApiUrl
                         });
                         setConfigSaved(false);
                         localStorage.removeItem('whatsapp_config');
                         setApiStatus(prev => ({ ...prev, phoneNumber: 'Not Connected', online: false, apiConnected: false }));
-                        setConnectionStatus({ whatsapp: false, webhook: false, n8n: false });
+                        setConnectionStatus({ whatsapp: false, webhook: false, n8n: false, backendApi: false }); // Reset backendApi status
                         setHasGeminiKey(false);
                         setIsWhatsAppConnected(false); // Reset WhatsApp connected state
                         setContacts([]);
@@ -1165,9 +1243,10 @@ const App = () => {
                   <p className="font-semibold text-purple-800 mb-2">✅ Step 3: Setup Webhook & AI Backend (for Real Live Chats)</p>
                   <ul className="list-disc ml-5 space-y-1 text-purple-700">
                     <li>Deploy a <span className="font-bold">backend server</span> to securely handle Meta's webhooks.</li>
-                    <li>Configure your webhook URL (<code>{apiConfig.webhookUrl}</code>) in Meta Business Suite.</li>
-                    <li>Your n8n URL (<code>{apiConfig.n8nWebhookUrl}</code>) is where your backend can forward messages for AI processing.</li>
-                    <li>Test both webhooks using the "Test" buttons above.</li>
+                    <li>Configure your webhook URL (<code>{apiConfig.webhookUrl || 'YOUR_META_WEBHOOK_URL'}</code>) in Meta Business Suite.</li>
+                    <li>Your n8n URL (<code>{apiConfig.n8nWebhookUrl || 'YOUR_N8N_WEBHOOK_URL'}</code>) is where your backend can forward messages for AI processing.</li>
+                    <li>Set your Backend API URL (<code>{apiConfig.backendApiUrl || 'YOUR_DASHBOARD_BACKEND_API_URL'}</code>) in the settings above.</li>
+                    <li>Test all configured webhooks and backend API using the "Test" buttons above.</li>
                   </ul>
                 </div>
 

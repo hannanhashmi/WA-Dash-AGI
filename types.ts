@@ -42,10 +42,12 @@ export interface ApiConfig {
   webhookUrl: string;
   n8nWebhookUrl: string;
   verifyToken: string;
+  backendApiUrl: string; // New: URL for the custom backend API
 }
 
 export interface ConnectionStatus {
   whatsapp: boolean;
   webhook: boolean;
   n8n: boolean;
+  backendApi: boolean; // New: Status for backend API reachability
 }
